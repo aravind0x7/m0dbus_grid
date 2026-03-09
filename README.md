@@ -1,4 +1,4 @@
-# m0dbus_lab 🏭
+# M0DBUS GR1D 🏭
 
 > A deliberately vulnerable Modbus TCP lab for hands-on OT/ICS security learning.  
 > Simulates a **Municipal Water Treatment Plant** with a real Modbus PLC, live SCADA HMI, and a purpose-built pentesting toolkit.
