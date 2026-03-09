@@ -15,6 +15,12 @@ Unauthorized access to ICS/OT systems is a criminal offense.
 
 ---
 
+## 📖 Lab Guide
+
+All the activities/actions that can be performed with this lab are compiled as a manual, which you can refer and have a detailed look on the lab. This will help you understand the actions in a deep way. You can get it here, Lan Manual[Read →](https://github.com/aravind0x7/m0dbus_grid/blob/main/Modbus_OT_Pentest_Lab_Guide.pdf).
+
+---
+
 ## What's Inside
 
 ```
