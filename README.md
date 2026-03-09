@@ -23,7 +23,7 @@ m0dbus_lab/
 ├── hmi_server.py        ← Flask REST API backend for the HMI
 ├── index.html           ← Industrial SCADA web dashboard
 ├── modisy.py            ← Custom Modbus pentesting toolkit
-└── start_lab.py         ← One-command lab launcher
+└── m0dbus_gr1d.py         ← One-command lab launcher
 ```
 
 | Component | Description | Port |
