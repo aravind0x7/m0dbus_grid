@@ -656,21 +656,28 @@ function buildSensorGrid() {
 
 // ── UPDATE UI ─────────────────────────────────────────────────────────────────
 function updateCoils(coils) {
+  // Map coil address → API key name (matches hmi_server.py coil_names order)
+  const coilKeyMap = {
+    0: 'pump1',
+    1: 'pump2',
+    2: 'valve_inlet',
+    3: 'valve_outlet',
+    4: 'chlorine_dosing',
+    5: 'uv_sterilizer',
+    6: 'alarm',
+    7: 'emergency_stop',
+    8: 'pump3',
+    9: 'heater',
+  };
   COILS.forEach(c => {
-    const val = coils[Object.keys(coils)[c.addr]] || false;
-    const actualKey = Object.keys(coils)[c.addr];
-    const isOn = Object.values(coils)[c.addr];
-
-    // Re-index properly
-    const coilArr = Object.values(coils);
-    const on = coilArr[c.addr] || false;
-
+    const key = coilKeyMap[c.addr];
+    const on = key !== undefined ? (coils[key] || false) : false;
     const tog = document.getElementById(`coilToggle_${c.addr}`);
-    const st = document.getElementById(`coilState_${c.addr}`);
+    const st  = document.getElementById(`coilState_${c.addr}`);
     if (!tog) return;
     tog.className = `toggle ${c.danger?'danger':''} ${on?'on':''}`;
     st.textContent = on ? 'ON' : 'OFF';
-    st.className = `toggle-state ${on?'on':'off'}`;
+    st.className   = `toggle-state ${on?'on':'off'}`;
   });
 }
 
@@ -719,12 +726,14 @@ function updateRegTable(holding) {
 
 function updateDiagram(data) {
   if (!data.coils || !data.sensors) return;
-  const c = Object.values(data.coils);
+  // Always use named keys — never rely on Object.values() ordering
+  const coils = data.coils;
   const s = data.sensors;
+
+  const pump1On = coils.pump1 || false;
 
   // Pipes flow
   const pipeIds = ['pipeInlet','pipePump1Out','pipeTank','pipeTankOut','pipeOutlet'];
-  const pump1On = c[0];
   pipeIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.className = `pipe flow ${pump1On?'':'stopped'}`;
@@ -740,24 +749,24 @@ function updateDiagram(data) {
   // Dosing pump
   const pc = document.getElementById('pumpChemCircle');
   if (pc) {
-    pc.style.stroke = c[4] ? 'var(--accent)' : 'var(--dim)';
-    pc.style.fill = c[4] ? 'rgba(0,212,255,0.1)' : '#0a1018';
+    pc.style.stroke = coils.chlorine_dosing ? 'var(--accent)' : 'var(--dim)';
+    pc.style.fill = coils.chlorine_dosing ? 'rgba(0,212,255,0.1)' : '#0a1018';
   }
 
   // UV
   const uv = document.getElementById('uvRect');
   if (uv) {
-    uv.style.stroke = c[5] ? 'rgba(180,120,255,0.8)' : 'var(--dim)';
-    uv.style.fill = c[5] ? 'rgba(180,120,255,0.2)' : 'transparent';
+    uv.style.stroke = coils.uv_sterilizer ? 'rgba(180,120,255,0.8)' : 'var(--dim)';
+    uv.style.fill = coils.uv_sterilizer ? 'rgba(180,120,255,0.2)' : 'transparent';
   }
 
   // Valves
   const vi = document.getElementById('valveInlet');
   if (vi) {
-    vi.querySelector('polygon').className = c[2] ? 'valve-open' : 'valve-closed';
+    vi.querySelector('polygon').className = coils.valve_inlet ? 'valve-open' : 'valve-closed';
   }
   const vo = document.getElementById('valveOutletPoly');
-  if (vo) vo.className = c[3] ? 'valve-open' : 'valve-closed';
+  if (vo) vo.className = coils.valve_outlet ? 'valve-open' : 'valve-closed';
 
   // Tank fill
   const tankFill = document.getElementById('tankFillRect');
@@ -797,32 +806,53 @@ function updateDiagram(data) {
   }
 
   // E-stop button
-  const estop = c[7] || false;
+  const estop = coils.emergency_stop || false;
   const btn = document.getElementById('estopBtn');
   if (btn) btn.className = 'estop-btn' + (estop?' engaged':'');
 
   // Update setpoint inputs if not focused
   if (data.setpoints) {
-    const vals = Object.values(data.setpoints);
+    // Map SETPOINTS addr → API key name (matches hmi_server.py holding_names order)
+    const spKeyMap = {
+      0: 'pump1_setpoint',
+      1: 'tank_hi',
+      2: 'tank_lo',
+      3: 'pressure_max',
+      4: 'chlorine_sp',
+      5: 'ph_hi',
+      6: 'ph_lo',
+      7: 'temp_sp',
+      8: 'dosing_rate',
+      9: 'maintenance_code',
+      10:'system_mode',
+      11:'unit_id',
+    };
     SETPOINTS.forEach(sp => {
       const inp = document.getElementById(`sp_${sp.addr}`);
-      if (inp && document.activeElement !== inp) {
-        inp.value = vals[sp.addr] !== undefined ? vals[sp.addr] : '';
+      const key = spKeyMap[sp.addr];
+      if (inp && document.activeElement !== inp && key !== undefined) {
+        inp.value = data.setpoints[key] !== undefined ? data.setpoints[key] : '';
       }
     });
     // System mode
     const modeEl = document.getElementById('sysMode');
     if (modeEl && document.activeElement !== modeEl) {
-      modeEl.value = vals[10] || 0;
+      modeEl.value = data.setpoints['system_mode'] || 0;
     }
   }
   if (data.setpoints) updateRegTable(Object.values(data.setpoints));
 }
 
 // ── ACTIONS ───────────────────────────────────────────────────────────────────
+const coilKeyMap = {
+  0:'pump1', 1:'pump2', 2:'valve_inlet', 3:'valve_outlet',
+  4:'chlorine_dosing', 5:'uv_sterilizer', 6:'alarm', 7:'emergency_stop',
+  8:'pump3', 9:'heater',
+};
+
 async function toggleCoil(addr) {
-  const coilArr = state.coils ? Object.values(state.coils) : [];
-  const current = coilArr[addr] || false;
+  const key = coilKeyMap[addr];
+  const current = (state.coils && key) ? (state.coils[key] || false) : false;
   const newVal = !current;
   addLog(`FC05 WRITE coil[${addr}] → ${newVal?'ON':'OFF'}`, 'write');
   await fetch(`${API}/api/coil/${addr}`, {
@@ -833,8 +863,7 @@ async function toggleCoil(addr) {
 }
 
 async function toggleEstop() {
-  const coilArr = state.coils ? Object.values(state.coils) : [];
-  const current = coilArr[7] || false;
+  const current = state.coils ? (state.coils['emergency_stop'] || false) : false;
   const newVal = !current;
   addLog(`FC05 WRITE coil[7] EMERGENCY_STOP → ${newVal?'ENGAGED':'RESET'}`, newVal?'alarm':'write');
   await fetch(`${API}/api/coil/7`, {
