@@ -18,7 +18,7 @@ Unauthorized access to ICS/OT systems is a criminal offense.
 ## What's Inside
 
 ```
-m0dbus_lab/
+m0dbus_gr1d/
 ├── plc_simulator.py     ← Modbus TCP server — Water Treatment Plant PLC
 ├── hmi_server.py        ← Flask REST API backend for the HMI
 ├── index.html           ← Industrial SCADA web dashboard
@@ -63,8 +63,8 @@ pip install flask
 **Clone the repo**
 
 ```bash
-git clone https://github.com/aravind0x7/m0dbus_lab.git
-cd m0dbus_lab
+git clone https://github.com/aravind0x7/m0dbus_gr1d.git
+cd m0dbus_gr1d
 ```
 
 **Install dependencies**
