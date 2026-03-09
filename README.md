@@ -76,7 +76,7 @@ pip install flask
 **Launch everything at once**
 
 ```bash
-python3 start_lab.py
+python3 m0dbus_gr1d.py
 ```
 
 Or start each component individually:
