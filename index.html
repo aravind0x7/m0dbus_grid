@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WTP-001 SCADA HMI — Water Treatment Plant</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg:       #0a0d11;
+    --panel:    #0e1319;
+    --border:   #1e2d3d;
+    --accent:   #00d4ff;
+    --green:    #00ff88;
+    --red:      #ff3b3b;
+    --orange:   #ff8c00;
+    --yellow:   #ffd600;
+    --dim:      #3a4a5a;
+    --text:     #c8d8e8;
+    --mono:     'Share Tech Mono', monospace;
+    --sans:     'Rajdhani', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* SCANLINE OVERLAY */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* TOP BAR */
+  .topbar {
+    background: linear-gradient(90deg, #060a0f 0%, #0e1a28 50%, #060a0f 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 16px; }
+  .logo {
+    font-family: var(--mono);
+    color: var(--accent);
+    font-size: 14px;
+    letter-spacing: 0.15em;
+    text-shadow: 0 0 12px var(--accent);
+  }
+  .site-name { font-size: 11px; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; }
+  .topbar-right { display: flex; align-items: center; gap: 20px; }
+  .clock { font-family: var(--mono); font-size: 16px; color: var(--accent); letter-spacing: 0.1em; }
+  .conn-status { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+  .conn-dot { width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 8px var(--green); animation: pulse 2s infinite; }
+  .conn-dot.offline { background: var(--red); box-shadow: 0 0 8px var(--red); animation: none; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  @keyframes alarm-flash { 0%,100%{background:rgba(255,59,59,0.15)} 50%{background:rgba(255,59,59,0.4)} }
+
+  /* LAYOUT */
+  .layout {
+    display: grid;
+    grid-template-columns: 260px 1fr 260px;
+    grid-template-rows: auto auto;
+    gap: 10px;
+    padding: 10px;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  /* PANELS */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .panel-header {
+    background: linear-gradient(90deg, #111820 0%, #0e1f2e 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .panel-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .panel-body { padding: 12px; }
+
+  /* PROCESS DIAGRAM */
+  .diagram-panel {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+  .diagram-svg-wrap {
+    background: #080c10;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 16px;
+    display: flex;
+    justify-content: center;
+  }
+
+  /* SENSORS */
+  .sensor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .sensor-item {
+    background: #0b1018;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 8px 10px;
+  }
+  .sensor-label { font-size: 10px; color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 4px; }
+  .sensor-value {
+    font-family: var(--mono);
+    font-size: 20px;
+    color: var(--green);
+    text-shadow: 0 0 10px rgba(0,255,136,0.4);
+    line-height: 1;
+  }
+  .sensor-unit { font-size: 10px; color: var(--dim); margin-left: 4px; }
+  .sensor-bar { margin-top: 5px; height: 3px; background: #1a2530; border-radius: 1px; overflow: hidden; }
+  .sensor-fill { height: 100%; background: var(--green); transition: width 0.5s; border-radius: 1px; }
+  .sensor-item.warn .sensor-value { color: var(--orange); text-shadow: 0 0 10px rgba(255,140,0,0.4); }
+  .sensor-item.warn .sensor-fill { background: var(--orange); }
+  .sensor-item.alarm .sensor-value { color: var(--red); text-shadow: 0 0 10px rgba(255,59,59,0.5); animation: blink 1s infinite; }
+  .sensor-item.alarm .sensor-fill { background: var(--red); }
+
+  /* CONTROLS */
+  .control-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 0;
+    border-bottom: 1px solid #131d28;
+  }
+  .control-row:last-child { border-bottom: none; }
+  .ctrl-label { font-size: 12px; font-weight: 600; letter-spacing: 0.05em; }
+  .ctrl-label .addr { font-family: var(--mono); font-size: 9px; color: var(--dim); margin-left: 6px; }
+
+  /* TOGGLE SWITCH */
+  .toggle-wrap { display: flex; align-items: center; gap: 8px; }
+  .toggle {
+    position: relative; width: 44px; height: 22px;
+    background: #1a2530; border-radius: 11px;
+    border: 1px solid var(--border);
+    cursor: pointer; transition: background 0.2s;
+  }
+  .toggle::after {
+    content: ''; position: absolute; top: 3px; left: 3px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--dim); transition: all 0.2s;
+  }
+  .toggle.on { background: rgba(0,255,136,0.15); border-color: var(--green); }
+  .toggle.on::after { left: 25px; background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .toggle.danger.on { background: rgba(255,59,59,0.15); border-color: var(--red); }
+  .toggle.danger.on::after { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  .toggle-state { font-family: var(--mono); font-size: 10px; width: 24px; }
+  .toggle-state.on { color: var(--green); }
+  .toggle-state.off { color: var(--dim); }
+
+  /* SETPOINTS */
+  .sp-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #131d28; }
+  .sp-row:last-child { border-bottom: none; }
+  .sp-label { font-size: 11px; color: var(--text); }
+  .sp-label .addr { font-family: var(--mono); font-size: 9px; color: var(--dim); margin-left: 4px; }
+  .sp-input {
+    width: 80px;
+    background: #0b1018;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 3px 6px;
+    text-align: right;
+    outline: none;
+  }
+  .sp-input:focus { border-color: var(--accent); box-shadow: 0 0 6px rgba(0,212,255,0.2); }
+  .sp-apply {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 8px;
+    cursor: pointer;
+    border-radius: 1px;
+    transition: all 0.15s;
+    margin-left: 6px;
+  }
+  .sp-apply:hover { background: rgba(0,212,255,0.1); }
+
+  /* ALARM BANNER */
+  .alarm-banner {
+    display: none;
+    background: rgba(255,59,59,0.12);
+    border: 1px solid rgba(255,59,59,0.5);
+    color: var(--red);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 8px 16px;
+    letter-spacing: 0.1em;
+    animation: alarm-flash 1s infinite;
+    text-align: center;
+    margin: 0 10px 0;
+  }
+  .alarm-banner.show { display: block; }
+
+  /* ESTOP BUTTON */
+  .estop-btn {
+    width: 100%;
+    background: linear-gradient(180deg, #5a0000 0%, #3a0000 100%);
+    border: 2px solid #ff3b3b;
+    color: #ff3b3b;
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.15em;
+    padding: 12px;
+    cursor: pointer;
+    border-radius: 2px;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    text-shadow: 0 0 8px rgba(255,59,59,0.6);
+    box-shadow: inset 0 1px 0 rgba(255,100,100,0.2), 0 0 20px rgba(255,59,59,0.1);
+  }
+  .estop-btn:hover { background: linear-gradient(180deg, #7a0000 0%, #5a0000 100%); box-shadow: 0 0 30px rgba(255,59,59,0.4); }
+  .estop-btn.engaged { background: linear-gradient(180deg, #ff3b3b 0%, #cc0000 100%); color: #fff; animation: pulse 1s infinite; }
+
+  /* REGISTER TABLE */
+  .reg-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+  .reg-table th { color: var(--dim); font-weight: normal; text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--border); }
+  .reg-table td { padding: 3px 6px; border-bottom: 1px solid #0e1520; }
+  .reg-table tr:last-child td { border-bottom: none; }
+  .reg-table tr:hover td { background: rgba(0,212,255,0.04); }
+  .reg-addr { color: var(--accent); }
+  .reg-val { color: var(--green); }
+  .reg-val.changed { color: var(--orange); }
+  .reg-hex { color: var(--dim); }
+
+  /* EVENT LOG */
+  .event-log { max-height: 180px; overflow-y: auto; }
+  .event-log::-webkit-scrollbar { width: 4px; }
+  .event-log::-webkit-scrollbar-track { background: #0a0d11; }
+  .event-log::-webkit-scrollbar-thumb { background: var(--border); }
+  .log-entry { font-family: var(--mono); font-size: 10px; padding: 3px 0; border-bottom: 1px solid #0e1520; display: flex; gap: 10px; }
+  .log-time { color: var(--dim); flex-shrink: 0; }
+  .log-msg { color: var(--text); }
+  .log-msg.write { color: var(--orange); }
+  .log-msg.alarm { color: var(--red); }
+  .log-msg.info { color: var(--accent); }
+
+  /* VULN INDICATOR */
+  .vuln-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: rgba(255,214,0,0.08);
+    border: 1px solid rgba(255,214,0,0.3);
+    color: var(--yellow);
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 1px;
+    letter-spacing: 0.08em;
+  }
+
+  /* PROCESS SVG DIAGRAM */
+  .pipe { fill: none; stroke: #1e3550; stroke-width: 4; stroke-linecap: round; }
+  .pipe.flow { stroke: #0055aa; animation: flow-anim 1.5s linear infinite; stroke-dasharray: 8 8; }
+  .pipe.flow.stopped { animation: none; stroke: #1e3550; }
+  .tank-body { fill: #0a1520; stroke: #1e3550; stroke-width: 1.5; }
+  .tank-fill { fill: rgba(0, 100, 200, 0.4); transition: all 0.8s; }
+  .pump-body { fill: #0e1f2e; stroke: #1e3550; stroke-width: 1.5; }
+  .pump-run { fill: rgba(0,255,136,0.1); stroke: var(--green); }
+  .pump-stop { fill: #0a1018; stroke: var(--dim); }
+  .valve-open { fill: rgba(0,212,255,0.1); stroke: var(--accent); }
+  .valve-closed { fill: rgba(255,59,59,0.1); stroke: var(--red); }
+  .label-text { fill: #8aa8c8; font-family: 'Share Tech Mono', monospace; font-size: 10px; }
+  .value-text { fill: #00ff88; font-family: 'Share Tech Mono', monospace; font-size: 9px; }
+  @keyframes flow-anim { to { stroke-dashoffset: -16; } }
+
+  /* STATUS SECTION */
+  .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+  .status-item { padding: 6px 8px; background: #0b1018; border: 1px solid var(--border); border-radius: 2px; }
+  .status-key { font-size: 9px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; }
+  .status-val { font-family: var(--mono); font-size: 13px; color: var(--accent); margin-top: 1px; }
+
+  .fc-badge {
+    display: inline-block;
+    background: rgba(0,212,255,0.08);
+    border: 1px solid rgba(0,212,255,0.2);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 0px 4px;
+    border-radius: 1px;
+    margin: 2px;
+    cursor: default;
+  }
+
+  .section-divider { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo">⬡ WTP-001 SCADA</div>
+    <div class="site-name">Municipal Water Treatment Plant — Unit 1</div>
+  </div>
+  <div class="topbar-right">
+    <div id="alarmIndicator" style="display:none; color:var(--red); font-family:var(--mono); font-size:11px; animation:blink 0.8s infinite; letter-spacing:0.1em;">⚠ ALARM ACTIVE</div>
+    <div class="conn-status">
+      <div class="conn-dot" id="connDot"></div>
+      <span id="connLabel" style="font-family:var(--mono);font-size:10px;">ONLINE</span>
+    </div>
+    <div class="clock" id="clock">00:00:00</div>
+  </div>
+</div>
+
+<div id="alarmBanner" class="alarm-banner">⚠ SYSTEM ALARM — CHECK PROCESS PARAMETERS ⚠</div>
+
+<!-- MAIN LAYOUT -->
+<div class="layout">
+
+  <!-- LEFT: CONTROLS -->
+  <div style="display:flex;flex-direction:column;gap:10px;">
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Process Control</span>
+        <span class="vuln-badge">V-001 NO AUTH</span>
+      </div>
+      <div class="panel-body">
+        <div id="coilControls">
+          <!-- populated by JS -->
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Emergency</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--red);">COIL 0x07</span>
+      </div>
+      <div class="panel-body">
+        <button class="estop-btn" id="estopBtn" onclick="toggleEstop()">
+          ■ EMERGENCY STOP
+        </button>
+        <div style="margin-top:8px;font-size:10px;color:var(--dim);text-align:center;font-family:var(--mono);">
+          FC05 — Coil Write — No Auth Required
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">System Mode</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--accent);">HR[10]</span>
+      </div>
+      <div class="panel-body">
+        <div class="sp-row">
+          <span class="sp-label">Mode <span class="addr">4x10</span></span>
+          <select id="sysMode" style="background:#0b1018;border:1px solid var(--border);color:var(--accent);font-family:var(--mono);font-size:11px;padding:3px;" onchange="writeSysMode()">
+            <option value="0">AUTO</option>
+            <option value="1">MANUAL</option>
+            <option value="2">MAINTENANCE</option>
+            <option value="3">EMERGENCY</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CENTER: PROCESS DIAGRAM -->
+  <div class="panel diagram-panel">
+    <div class="panel-header">
+      <span class="panel-title">Process Mimic Diagram — Water Treatment Plant</span>
+      <span id="lastUpdate" style="font-family:var(--mono);font-size:9px;color:var(--dim);">--:--:--</span>
+    </div>
+    <div class="panel-body" style="padding:10px;">
+      <div class="diagram-svg-wrap">
+        <svg id="processDiagram" width="640" height="420" viewBox="0 0 640 420">
+          <!-- PIPES -->
+          <!-- Inlet pipe -->
+          <path class="pipe flow" id="pipeInlet" d="M 30 200 L 120 200"/>
+          <!-- Pump 1 outlet -->
+          <path class="pipe flow" id="pipePump1Out" d="M 200 200 L 290 200"/>
+          <!-- To tank -->
+          <path class="pipe flow" id="pipeTank" d="M 290 200 L 290 100 L 360 100"/>
+          <!-- Tank outlet -->
+          <path class="pipe flow" id="pipeTankOut" d="M 460 100 L 530 100 L 530 200"/>
+          <!-- Outlet pipe -->
+          <path class="pipe flow" id="pipeOutlet" d="M 530 200 L 610 200"/>
+          <!-- Chemical dosing -->
+          <path class="pipe" id="pipeChem" d="M 400 320 L 400 200" style="stroke-dasharray:4 4;stroke-width:2;stroke:#1e3550"/>
+
+          <!-- INLET VALVE -->
+          <g id="valveInlet" transform="translate(110,185)">
+            <polygon class="valve-open" points="0,15 15,0 30,15 15,30" />
+            <text class="label-text" x="15" y="-6" text-anchor="middle">V1</text>
+          </g>
+
+          <!-- PUMP 1 -->
+          <g id="pump1" transform="translate(148,170)">
+            <circle class="pump-run" cx="26" cy="26" r="26" id="pump1Circle"/>
+            <path d="M 14,26 A12,12 0 0,1 38,26" stroke="currentColor" stroke-width="2" fill="none" style="stroke:var(--green)" id="pump1Arc"/>
+            <text class="label-text" x="26" y="30" text-anchor="middle" font-size="9">P1</text>
+            <text class="label-text" x="26" y="68" text-anchor="middle">PUMP-1</text>
+          </g>
+
+          <!-- STORAGE TANK -->
+          <g id="storageTank" transform="translate(350,50)">
+            <rect class="tank-body" x="0" y="0" width="110" height="100" rx="3"/>
+            <clipPath id="tankClip"><rect x="2" y="2" width="106" height="96" rx="2"/></clipPath>
+            <rect class="tank-fill" id="tankFillRect" x="2" y="50" width="106" height="48" clip-path="url(#tankClip)"/>
+            <text class="label-text" x="55" y="-8" text-anchor="middle">STORAGE TANK</text>
+            <text class="value-text" id="tankLevelText" x="55" y="55" text-anchor="middle">72%</text>
+          </g>
+
+          <!-- OUTLET VALVE -->
+          <g id="valveOutlet" transform="translate(520,185)">
+            <polygon class="valve-open" points="0,15 15,0 30,15 15,30" id="valveOutletPoly"/>
+            <text class="label-text" x="15" y="-6" text-anchor="middle">V2</text>
+          </g>
+
+          <!-- CHLORINE DOSING PUMP -->
+          <g id="pumpChem" transform="translate(376,300)">
+            <circle class="pump-stop" cx="24" cy="24" r="24" id="pumpChemCircle"/>
+            <text class="label-text" x="24" y="28" text-anchor="middle" font-size="9">P3</text>
+            <text class="label-text" x="24" y="62" text-anchor="middle">DOSING</text>
+          </g>
+
+          <!-- UV STERILIZER -->
+          <g transform="translate(480,155)">
+            <rect fill="#0a1520" stroke="#1e3550" stroke-width="1.5" x="0" y="0" width="40" height="20" rx="10"/>
+            <rect id="uvRect" fill="rgba(180,120,255,0.15)" stroke="rgba(180,120,255,0.6)" stroke-width="1" x="2" y="2" width="36" height="16" rx="8"/>
+            <text class="label-text" x="20" y="-6" text-anchor="middle" font-size="9">UV</text>
+          </g>
+
+          <!-- FLOW METER -->
+          <g transform="translate(230,180)">
+            <circle fill="#0b1520" stroke="#1e3550" stroke-width="1.5" cx="12" cy="12" r="12"/>
+            <text class="label-text" x="12" y="16" text-anchor="middle" font-size="8">FM</text>
+            <text class="value-text" id="flowText" x="12" y="36" text-anchor="middle">--</text>
+          </g>
+
+          <!-- PRESSURE GAUGES -->
+          <g transform="translate(60,155)">
+            <circle fill="#0b1520" stroke="#1e3550" stroke-width="1" cx="10" cy="10" r="10"/>
+            <text class="label-text" x="10" y="30" text-anchor="middle" font-size="9">PT</text>
+            <text class="value-text" id="pressInText" x="10" y="42" text-anchor="middle">--</text>
+          </g>
+          <g transform="translate(560,155)">
+            <circle fill="#0b1520" stroke="#1e3550" stroke-width="1" cx="10" cy="10" r="10"/>
+            <text class="label-text" x="10" y="30" text-anchor="middle" font-size="9">PT</text>
+            <text class="value-text" id="pressOutText" x="10" y="42" text-anchor="middle">--</text>
+          </g>
+
+          <!-- WATER QUALITY ANALYZER -->
+          <g transform="translate(280,280)">
+            <rect fill="#0a1520" stroke="#1e3550" stroke-width="1.5" x="0" y="0" width="80" height="55" rx="2"/>
+            <text class="label-text" x="40" y="14" text-anchor="middle" font-size="9">QUALITY</text>
+            <text class="value-text" id="phText" x="40" y="28" text-anchor="middle">pH --</text>
+            <text class="value-text" id="clText" x="40" y="42" text-anchor="middle" style="fill:#88ddff">Cl --</text>
+          </g>
+
+          <!-- INLET LABEL -->
+          <text class="label-text" x="30" y="195" font-size="9">INLET</text>
+          <!-- OUTLET LABEL -->
+          <text class="label-text" x="580" y="195" font-size="9">OUT</text>
+
+          <!-- ALARM INDICATOR -->
+          <g id="alarmSvg" transform="translate(280,360)">
+            <rect fill="rgba(255,59,59,0.0)" stroke="rgba(255,59,59,0.0)" x="0" y="0" width="80" height="24" rx="2" id="alarmSvgRect"/>
+            <text fill="var(--red)" font-family="Share Tech Mono,monospace" font-size="11" x="40" y="16" text-anchor="middle" id="alarmSvgText" opacity="0">⚠ ALARM</text>
+          </g>
+
+          <!-- PROCESS LABELS -->
+          <text class="label-text" x="20" y="230" font-size="9">Modbus TCP :502</text>
+          <text class="label-text" x="20" y="244" font-size="9">Unit ID: 1</text>
+          <text class="label-text" x="20" y="258" font-size="9" style="fill:var(--yellow)">No Auth [V-001]</text>
+        </svg>
+      </div>
+
+      <!-- SENSOR READINGS BELOW DIAGRAM -->
+      <div class="sensor-grid" style="margin-top:10px;" id="sensorGrid">
+        <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: SETPOINTS + REGISTERS -->
+  <div style="display:flex;flex-direction:column;gap:10px;">
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Setpoints</span>
+        <span class="vuln-badge">FC06/FC16 VULN</span>
+      </div>
+      <div class="panel-body" id="setpointsPanel">
+        <!-- populated by JS -->
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Register Map</span>
+        <span class="vuln-badge">V-003 NO WHITELIST</span>
+      </div>
+      <div class="panel-body" style="padding:8px;">
+        <table class="reg-table" id="regTable">
+          <thead><tr><th>ADDR</th><th>NAME</th><th>DEC</th><th>HEX</th></tr></thead>
+          <tbody id="regTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- BOTTOM: EVENT LOG spanning all -->
+  <div class="panel" style="grid-column:1/4;">
+    <div class="panel-header">
+      <span class="panel-title">Event Log <span style="font-size:9px;color:var(--dim)">/api/audit [V-HMI-005 UNAUTH]</span></span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="font-family:var(--mono);font-size:9px;color:var(--dim);">FC COVERAGE:</span>
+        <span class="fc-badge">FC01</span><span class="fc-badge">FC02</span><span class="fc-badge">FC03</span>
+        <span class="fc-badge">FC04</span><span class="fc-badge">FC05</span><span class="fc-badge">FC06</span>
+        <span class="fc-badge">FC0F</span><span class="fc-badge">FC10</span><span class="fc-badge">FC11</span>
+        <span class="fc-badge">FC2B</span>
+        <button onclick="clearLog()" style="background:transparent;border:1px solid var(--dim);color:var(--dim);font-family:var(--mono);font-size:9px;padding:2px 8px;cursor:pointer;">CLR</button>
+      </div>
+    </div>
+    <div class="panel-body" style="padding:8px;">
+      <div class="event-log" id="eventLog"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = '';
+let state = {};
+let prevRegs = {};
+let logEntries = [];
+let polling = true;
+
+// ── COIL DEFINITIONS ──────────────────────────────────────────────────────────
+const COILS = [
+  { addr:0, name:'Pump 1',         icon:'⚙', danger:false },
+  { addr:1, name:'Pump 2 (Backup)',icon:'⚙', danger:false },
+  { addr:2, name:'Inlet Valve',    icon:'◈', danger:false },
+  { addr:3, name:'Outlet Valve',   icon:'◈', danger:false },
+  { addr:4, name:'Cl₂ Dosing',    icon:'⬡', danger:false },
+  { addr:5, name:'UV Sterilizer',  icon:'◉', danger:false },
+  { addr:8, name:'Chemical Pump',  icon:'⚙', danger:false },
+  { addr:9, name:'Heater',         icon:'◈', danger:false },
+];
+
+const SETPOINTS = [
+  { addr:0, name:'Flow Setpoint',    unit:'L/min', scale:1,   min:0,   max:1000 },
+  { addr:1, name:'Tank Level Hi',    unit:'%',     scale:1,   min:0,   max:100  },
+  { addr:2, name:'Tank Level Lo',    unit:'%',     scale:1,   min:0,   max:100  },
+  { addr:3, name:'Pressure Max',     unit:'kPa',   scale:1,   min:0,   max:600  },
+  { addr:4, name:'Chlorine SP',      unit:'ppm×100',scale:1,  min:0,   max:500  },
+  { addr:7, name:'Temp Setpoint',    unit:'°C×10', scale:1,   min:100, max:400  },
+  { addr:8, name:'Dosing Rate',      unit:'%',     scale:1,   min:0,   max:100  },
+  { addr:9, name:'Maintenance Code', unit:'hex',   scale:1,   min:0,   max:65535, vuln:true },
+];
+
+const REG_NAMES = [
+  'PUMP1_SETPOINT','TANK_LVL_HI','TANK_LVL_LO','PRESS_MAX',
+  'CL_SETPOINT','PH_SP_HI','PH_SP_LO','TEMP_SP',
+  'DOSING_RATE','MAINT_CODE','SYS_MODE','UNIT_ID'
+];
+
+// ── BUILD CONTROLS ────────────────────────────────────────────────────────────
+function buildCoilControls() {
+  const el = document.getElementById('coilControls');
+  el.innerHTML = COILS.map(c => `
+    <div class="control-row" id="coilRow_${c.addr}">
+      <span class="ctrl-label">${c.icon} ${c.name} <span class="addr">0x${c.addr.toString(16).padStart(2,'0')}</span></span>
+      <div class="toggle-wrap">
+        <span class="toggle-state off" id="coilState_${c.addr}">OFF</span>
+        <div class="toggle ${c.danger?'danger':''}" id="coilToggle_${c.addr}" onclick="toggleCoil(${c.addr})"></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function buildSetpoints() {
+  const el = document.getElementById('setpointsPanel');
+  el.innerHTML = SETPOINTS.map(s => `
+    <div class="sp-row">
+      <span class="sp-label ${s.vuln?'':''}">
+        ${s.vuln ? '⚠ ' : ''}${s.name}
+        <span class="addr">4x${s.addr.toString().padStart(2,'0')}</span>
+        ${s.vuln ? '<span class="vuln-badge" style="margin-left:4px;">VULN</span>' : ''}
+      </span>
+      <div style="display:flex;align-items:center;">
+        <input class="sp-input" id="sp_${s.addr}" type="number"
+          min="${s.min}" max="${s.max}" value="0">
+        <button class="sp-apply" onclick="applySetpoint(${s.addr}, '${s.unit}')">WRITE</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function buildSensorGrid() {
+  const sensors = [
+    { key:'flow_rate',    label:'Flow Rate',      unit:'L/min', max:1000 },
+    { key:'tank_level',   label:'Tank Level',     unit:'%',     max:100  },
+    { key:'inlet_pressure',label:'Inlet Press',   unit:'kPa',   max:600  },
+    { key:'outlet_pressure',label:'Outlet Press', unit:'kPa',   max:600  },
+    { key:'water_temp',   label:'Temperature',    unit:'°C',    max:50   },
+    { key:'turbidity',    label:'Turbidity',      unit:'NTU',   max:5    },
+    { key:'ph',           label:'pH',             unit:'',      max:14   },
+    { key:'chlorine_ppm', label:'Chlorine',       unit:'ppm',   max:5    },
+  ];
+  const el = document.getElementById('sensorGrid');
+  el.innerHTML = sensors.map(s => `
+    <div class="sensor-item" id="sensorItem_${s.key}">
+      <div class="sensor-label">${s.label}</div>
+      <div><span class="sensor-value" id="sv_${s.key}">---</span><span class="sensor-unit">${s.unit}</span></div>
+      <div class="sensor-bar"><div class="sensor-fill" id="sf_${s.key}" style="width:0%"></div></div>
+    </div>
+  `).join('');
+}
+
+// ── UPDATE UI ─────────────────────────────────────────────────────────────────
+function updateCoils(coils) {
+  COILS.forEach(c => {
+    const val = coils[Object.keys(coils)[c.addr]] || false;
+    const actualKey = Object.keys(coils)[c.addr];
+    const isOn = Object.values(coils)[c.addr];
+
+    // Re-index properly
+    const coilArr = Object.values(coils);
+    const on = coilArr[c.addr] || false;
+
+    const tog = document.getElementById(`coilToggle_${c.addr}`);
+    const st = document.getElementById(`coilState_${c.addr}`);
+    if (!tog) return;
+    tog.className = `toggle ${c.danger?'danger':''} ${on?'on':''}`;
+    st.textContent = on ? 'ON' : 'OFF';
+    st.className = `toggle-state ${on?'on':'off'}`;
+  });
+}
+
+function updateSensors(sensors) {
+  const thresholds = {
+    flow_rate:   { warn: 800, alarm: 950 },
+    tank_level:  { warn: 80,  alarm: 95  },
+    inlet_pressure: { warn:350, alarm:500 },
+    turbidity:   { warn: 1.0, alarm: 2.0 },
+    ph:          { warn: 7.8, alarm: 8.0 },
+    chlorine_ppm:{ warn: 2.0, alarm: 3.0 },
+  };
+  const maxes = { flow_rate:1000,tank_level:100,inlet_pressure:600,outlet_pressure:600,
+    water_temp:50,turbidity:5,ph:14,chlorine_ppm:5 };
+
+  Object.entries(sensors).forEach(([k,v]) => {
+    const el = document.getElementById(`sv_${k}`);
+    const bar = document.getElementById(`sf_${k}`);
+    const item = document.getElementById(`sensorItem_${k}`);
+    if (!el) return;
+    el.textContent = typeof v === 'number' ? v.toFixed(v < 10 ? 2 : 0) : v;
+    if (bar && maxes[k]) {
+      bar.style.width = Math.min(100, (v / maxes[k]) * 100) + '%';
+    }
+    if (item && thresholds[k]) {
+      const t = thresholds[k];
+      item.className = 'sensor-item' + (v >= t.alarm ? ' alarm' : v >= t.warn ? ' warn' : '');
+    }
+  });
+}
+
+function updateRegTable(holding) {
+  const tbody = document.getElementById('regTableBody');
+  tbody.innerHTML = holding.map((v, i) => {
+    const changed = prevRegs[i] !== undefined && prevRegs[i] !== v;
+    prevRegs[i] = v;
+    const isSecret = i === 9;
+    return `<tr>
+      <td class="reg-addr">4x${i.toString().padStart(2,'0')}</td>
+      <td style="color:${isSecret?'var(--yellow)':'var(--text)'};">${REG_NAMES[i]||'?'}${isSecret?' ⚠':''}</td>
+      <td class="reg-val ${changed?'changed':''}">${v}</td>
+      <td class="reg-hex">${'0x'+v.toString(16).toUpperCase().padStart(4,'0')}</td>
+    </tr>`;
+  }).join('');
+}
+
+function updateDiagram(data) {
+  if (!data.coils || !data.sensors) return;
+  const c = Object.values(data.coils);
+  const s = data.sensors;
+
+  // Pipes flow
+  const pipeIds = ['pipeInlet','pipePump1Out','pipeTank','pipeTankOut','pipeOutlet'];
+  const pump1On = c[0];
+  pipeIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.className = `pipe flow ${pump1On?'':'stopped'}`;
+  });
+
+  // Pump 1
+  const p1 = document.getElementById('pump1Circle');
+  if (p1) {
+    p1.className = pump1On ? 'pump-run' : 'pump-stop';
+    p1.style.stroke = pump1On ? 'var(--green)' : 'var(--dim)';
+  }
+
+  // Dosing pump
+  const pc = document.getElementById('pumpChemCircle');
+  if (pc) {
+    pc.style.stroke = c[4] ? 'var(--accent)' : 'var(--dim)';
+    pc.style.fill = c[4] ? 'rgba(0,212,255,0.1)' : '#0a1018';
+  }
+
+  // UV
+  const uv = document.getElementById('uvRect');
+  if (uv) {
+    uv.style.stroke = c[5] ? 'rgba(180,120,255,0.8)' : 'var(--dim)';
+    uv.style.fill = c[5] ? 'rgba(180,120,255,0.2)' : 'transparent';
+  }
+
+  // Valves
+  const vi = document.getElementById('valveInlet');
+  if (vi) {
+    vi.querySelector('polygon').className = c[2] ? 'valve-open' : 'valve-closed';
+  }
+  const vo = document.getElementById('valveOutletPoly');
+  if (vo) vo.className = c[3] ? 'valve-open' : 'valve-closed';
+
+  // Tank fill
+  const tankFill = document.getElementById('tankFillRect');
+  const tankText = document.getElementById('tankLevelText');
+  if (tankFill) {
+    const pct = s.tank_level || 0;
+    const h = Math.round(96 * pct / 100);
+    tankFill.setAttribute('y', 2 + (96 - h));
+    tankFill.setAttribute('height', h);
+  }
+  if (tankText) tankText.textContent = (s.tank_level||0).toFixed(0) + '%';
+
+  // Text values
+  const flowEl = document.getElementById('flowText');
+  if (flowEl) flowEl.textContent = (s.flow_rate||0) + '';
+
+  const piEl = document.getElementById('pressInText');
+  if (piEl) piEl.textContent = (s.inlet_pressure||0) + '';
+  const poEl = document.getElementById('pressOutText');
+  if (poEl) poEl.textContent = (s.outlet_pressure||0) + '';
+
+  const phEl = document.getElementById('phText');
+  if (phEl) phEl.textContent = 'pH ' + (s.ph||0).toFixed(2);
+  const clEl = document.getElementById('clText');
+  if (clEl) clEl.textContent = 'Cl ' + (s.chlorine_ppm||0).toFixed(2) + 'ppm';
+
+  // Alarm
+  const alarmActive = data.alarms && data.alarms.active;
+  document.getElementById('alarmBanner').className = 'alarm-banner' + (alarmActive?' show':'');
+  document.getElementById('alarmIndicator').style.display = alarmActive ? 'block' : 'none';
+  const alarmTxt = document.getElementById('alarmSvgText');
+  const alarmRect = document.getElementById('alarmSvgRect');
+  if (alarmTxt) alarmTxt.setAttribute('opacity', alarmActive ? '1' : '0');
+  if (alarmRect) {
+    alarmRect.style.fill = alarmActive ? 'rgba(255,59,59,0.15)' : 'transparent';
+    alarmRect.style.stroke = alarmActive ? 'rgba(255,59,59,0.5)' : 'transparent';
+  }
+
+  // E-stop button
+  const estop = c[7] || false;
+  const btn = document.getElementById('estopBtn');
+  if (btn) btn.className = 'estop-btn' + (estop?' engaged':'');
+
+  // Update setpoint inputs if not focused
+  if (data.setpoints) {
+    const vals = Object.values(data.setpoints);
+    SETPOINTS.forEach(sp => {
+      const inp = document.getElementById(`sp_${sp.addr}`);
+      if (inp && document.activeElement !== inp) {
+        inp.value = vals[sp.addr] !== undefined ? vals[sp.addr] : '';
+      }
+    });
+    // System mode
+    const modeEl = document.getElementById('sysMode');
+    if (modeEl && document.activeElement !== modeEl) {
+      modeEl.value = vals[10] || 0;
+    }
+  }
+  if (data.setpoints) updateRegTable(Object.values(data.setpoints));
+}
+
+// ── ACTIONS ───────────────────────────────────────────────────────────────────
+async function toggleCoil(addr) {
+  const coilArr = state.coils ? Object.values(state.coils) : [];
+  const current = coilArr[addr] || false;
+  const newVal = !current;
+  addLog(`FC05 WRITE coil[${addr}] → ${newVal?'ON':'OFF'}`, 'write');
+  await fetch(`${API}/api/coil/${addr}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({value: newVal})
+  });
+  await poll();
+}
+
+async function toggleEstop() {
+  const coilArr = state.coils ? Object.values(state.coils) : [];
+  const current = coilArr[7] || false;
+  const newVal = !current;
+  addLog(`FC05 WRITE coil[7] EMERGENCY_STOP → ${newVal?'ENGAGED':'RESET'}`, newVal?'alarm':'write');
+  await fetch(`${API}/api/coil/7`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({value: newVal})
+  });
+  await poll();
+}
+
+async function applySetpoint(addr, unit) {
+  const inp = document.getElementById(`sp_${addr}`);
+  const val = parseInt(inp.value);
+  addLog(`FC06 WRITE HR[${addr}] = ${val} (${REG_NAMES[addr]||'?'})`, 'write');
+  await fetch(`${API}/api/register/${addr}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({value: val})
+  });
+  await poll();
+}
+
+async function writeSysMode() {
+  const val = parseInt(document.getElementById('sysMode').value);
+  const modes = ['AUTO','MANUAL','MAINTENANCE','EMERGENCY'];
+  addLog(`FC06 WRITE HR[10] SYS_MODE → ${modes[val]||val}`, 'write');
+  await fetch(`${API}/api/register/10`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({value: val})
+  });
+}
+
+function clearLog() {
+  logEntries = [];
+  document.getElementById('eventLog').innerHTML = '';
+}
+
+function addLog(msg, type='info') {
+  const now = new Date();
+  const ts = now.toTimeString().slice(0,8);
+  logEntries.unshift({ts, msg, type});
+  if (logEntries.length > 200) logEntries.pop();
+  renderLog();
+}
+
+function renderLog() {
+  const el = document.getElementById('eventLog');
+  el.innerHTML = logEntries.slice(0,80).map(e =>
+    `<div class="log-entry">
+      <span class="log-time">${e.ts}</span>
+      <span class="log-msg ${e.type}">${e.msg}</span>
+    </div>`
+  ).join('');
+}
+
+// ── POLLING ───────────────────────────────────────────────────────────────────
+async function poll() {
+  try {
+    const r = await fetch(`${API}/api/status`);
+    if (!r.ok) throw new Error(r.status);
+    const data = await r.json();
+    state = data;
+
+    const dot = document.getElementById('connDot');
+    const lbl = document.getElementById('connLabel');
+    dot.className = 'conn-dot';
+    lbl.textContent = 'ONLINE';
+
+    document.getElementById('lastUpdate').textContent = new Date().toTimeString().slice(0,8);
+
+    updateCoils(data.coils || {});
+    updateSensors(data.sensors || {});
+    updateDiagram(data);
+  } catch(e) {
+    const dot = document.getElementById('connDot');
+    const lbl = document.getElementById('connLabel');
+    dot.className = 'conn-dot offline';
+    lbl.textContent = 'OFFLINE';
+    addLog(`Connection failed: ${e.message}`, 'alarm');
+  }
+}
+
+// Clock
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toTimeString().slice(0,8);
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+buildCoilControls();
+buildSetpoints();
+buildSensorGrid();
+addLog('HMI Initialized — WTP-001 SCADA Interface', 'info');
+addLog('WARNING: No authentication enforced [V-HMI-001]', 'alarm');
+addLog('Polling PLC via Modbus TCP...', 'info');
+
+setInterval(updateClock, 1000);
+setInterval(poll, 2000);
+poll();
+</script>
+</body>
+</html>
